@@ -148,15 +148,51 @@ with an exponential decay envelope.
 This also sidesteps the whole licensing question for effects. Music is
 different, see below.
 
-## Formats and size
+## Formats
 
-| Use | Format | Why |
-| --- | --- | --- |
-| Short effects | 16-bit mono WAV, 22.05kHz | No decode latency. A 200ms effect is ~9KB. |
-| Music loop | `.m4a` (AAC) or `.ogg` | A 2 minute WAV loop is 20MB. AAC is ~2MB. |
+`audioplayers` is a thin interface over each platform's native player. It parses
+nothing itself, so what plays is exactly what Android and iOS each support
+natively. Those two lists are not the same, and the gaps matter.
+
+| Use | Format | Android | iOS |
+| --- | --- | --- | --- |
+| Short effects | **16-bit mono WAV (linear PCM), 22.05kHz** | Yes | Yes |
+| Music loop | **AAC in `.m4a`** | Yes | Yes |
+| Anything | `.ogg` (Vorbis) | Yes | **No** |
+| Anything | `.mp3` | Yes | Yes, but see below |
+
+**WAV for effects is not just a latency preference on iOS, it is a correctness
+requirement.** Apple's hardware-assisted codecs (AAC, MP3, ALAC) share a single
+hardware decoder, so **only one such sound can play at a time**. Linear PCM and
+IMA4 are software-decoded and can play simultaneously without CPU trouble. A
+voice pool of four players fed compressed effects will not overlap on iOS; the
+same pool fed WAV will.
+
+**Never ship `.ogg` in a cross-platform game.** Android supports Vorbis natively
+and it is tempting because it is small, but iOS has never supported it. The
+failure is at runtime on device, not at build time, which is the worst place to
+find it.
+
+**Avoid MP3 for short effects** even though both platforms decode it. The format
+carries encoder padding at the start and end of every file, so a 60ms tap sound
+arrives late and a music loop cannot be gapless. AAC has the same padding
+problem for loops; if a seamless loop matters, either use WAV and accept the
+size, or trim and test the loop point on a real device.
+
+Apple prefers CAF as a container and `afconvert -f caff -d LEI16` will produce
+one, but a plain WAV is the same linear PCM data in a container Android also
+reads. One shared asset beats two platform-specific ones.
+
+## Size
 
 Mono is correct for effects in a portrait phone game. Stereo doubles the size
-for a stage nobody perceives through a phone speaker.
+for a stage nobody perceives through a phone speaker. 22.05kHz is plenty for
+beeps and impacts; go to 44.1kHz only for music.
+
+A 200ms mono WAV effect at 22.05kHz is about 9KB, so a dozen of them cost
+roughly 100KB. Music is where the budget goes: a 2 minute stereo loop is around
+20MB as WAV and around 2MB as AAC, which is why the two rows in that table
+differ.
 
 Watch the total. Audio is usually the second largest thing in a casual game
 binary after images, and install size measurably affects conversion.

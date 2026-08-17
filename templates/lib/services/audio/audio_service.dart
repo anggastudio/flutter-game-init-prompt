@@ -72,8 +72,16 @@ class AudioService {
 
   /// Enough voices for the busiest moment in a casual game, without letting a
   /// runaway sound source allocate without bound.
+  ///
+  /// The pool only actually overlaps if the effects are linear PCM (WAV). On
+  /// iOS, AAC, MP3 and ALAC share a single hardware decoder and play strictly
+  /// one at a time, so compressed effects would serialise no matter how many
+  /// voices are allocated here.
   static const int _poolSize = 4;
 
+  /// AAC in an .m4a container: the one compressed format both platforms decode
+  /// natively. Vorbis in .ogg is smaller and fine on Android, but iOS has
+  /// never supported it and the failure shows up at runtime on device.
   static const String _musicAsset = 'audio/music.m4a';
 
   final List<AudioPlayer> _pool = [];

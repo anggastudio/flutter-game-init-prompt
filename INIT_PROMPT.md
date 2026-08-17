@@ -246,9 +246,14 @@ The rest:
   alongside the WAVs. Six short beeps do not justify a sample library or a
   licensing search, and a committed binary nobody can regenerate is a sound
   nobody ever adjusts.
-- **Formats**: 16-bit mono WAV at 22.05kHz for effects (no decode latency,
-  ~9KB for 200ms), AAC `.m4a` or `.ogg` for the music loop (a 2 minute WAV is
-  20MB, the AAC is 2MB). Install size measurably affects conversion.
+- **Formats**: 16-bit mono WAV (linear PCM) at 22.05kHz for effects, AAC in
+  `.m4a` for the music loop. On iOS the hardware-decoded codecs (AAC, MP3,
+  ALAC) share **one** decoder, so only one compressed sound plays at a time.
+  A voice pool fed compressed effects will not overlap there; fed WAV it will.
+  **Never ship `.ogg`**: Android supports Vorbis, iOS never has, and it fails
+  at runtime on device rather than at build time. Avoid MP3 for short effects,
+  since its encoder padding makes a 60ms tap arrive late. Install size
+  measurably affects conversion, so keep effects mono and the music compressed.
 - **Music licensing**: commissioned, self-made, CC0, or paid with the receipt
   kept. "Free for non-commercial use" does not cover an ad-supported game.
   Record what you used and where it came from in `assets/audio/README.md`.

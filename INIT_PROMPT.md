@@ -23,8 +23,8 @@ writing a single file, then build it in the phase order given at the end.
 - **Progression**: `<<< levels? endless with a high score? both? >>>`
 - **Art direction**: `<<< pixel / flat vector / minimal geometric >>>`, palette
   `<<< hex list >>>`.
-- **Audio**: `<<< short SFX only / SFX plus a loop >>>`, always mutable from the
-  first screen.
+- **Audio**: `<<< short SFX only / SFX plus a music loop >>>`, always mutable
+  from the first screen.
 
 ### 2. Stack
 
@@ -193,7 +193,68 @@ power.
 Entitlements decide whether ads should load at all, and booting AdMob for
 someone who paid to remove ads is a wasted request.
 
-### 6. Monitoring
+### 6. Audio
+
+Audio is decoration. A busy audio session, a revoked codec, or a missing asset
+must still leave the game playable. Every failure path is logged and swallowed,
+never thrown.
+
+**Set the global audio context in `main()` before any `AudioPlayer` is
+constructed.** This is the one audio bug that costs a whole afternoon. A player
+created before the context is set is born holding `GAIN` audio focus, and the
+symptom is baffling: the music plays fine until the first sound effect, then
+pauses and ducks on every effect after it.
+
+```dart
+await AudioPlayer.global.setAudioContext(
+  AudioContext(
+    android: const AudioContextAndroid(
+      isSpeakerphoneOn: false,
+      stayAwake: false,
+      contentType: AndroidContentType.music,
+      usageType: AndroidUsageType.media,
+      audioFocus: AndroidAudioFocus.none,
+    ),
+    // `ambient` mixes within the app and respects the hardware silent switch.
+    // `mixWithOthers` is not a valid option with this category.
+    iOS: AudioContextIOS(category: AVAudioSessionCategory.ambient),
+  ),
+);
+```
+
+The rest:
+
+- **Never interrupt the player's own audio.** A casual game is played on a bus
+  with someone's podcast running. Sound effects over a podcast are fine, a
+  second music track is not. If the game has music, default it to off.
+- **Effects need a pool** of about four preloaded players, round-robined. Games
+  overlap sounds routinely, and a single player cuts the first one off mid-note.
+  Preload with `setSource` and `ReleaseMode.stop`, so retriggering is
+  `seek(Duration.zero)` plus `resume()` with no reload. That difference is
+  audible as tap responsiveness.
+- **Music is one player** with `ReleaseMode.loop`, started and stopped from the
+  settings toggle directly.
+- **Callers name cues, never filenames.** An `Sfx` enum carries the asset path,
+  and one `handleGameEvent` switch maps each engine event to its sound plus the
+  haptic that goes with it. When one cue already covers a moment, play the
+  haptic alone rather than stacking two sounds on one frame.
+- **Sound, music, and haptics get three separate toggles**, persisted, reachable
+  from the first screen, read at play time so flipping one takes effect
+  instantly.
+- **Generate the effects** with `tool/generate_sfx.py` (Python stdlib:
+  oscillators plus an exponential decay envelope) and commit the script
+  alongside the WAVs. Six short beeps do not justify a sample library or a
+  licensing search, and a committed binary nobody can regenerate is a sound
+  nobody ever adjusts.
+- **Formats**: 16-bit mono WAV at 22.05kHz for effects (no decode latency,
+  ~9KB for 200ms), AAC `.m4a` or `.ogg` for the music loop (a 2 minute WAV is
+  20MB, the AAC is 2MB). Install size measurably affects conversion.
+- **Music licensing**: commissioned, self-made, CC0, or paid with the receipt
+  kept. "Free for non-commercial use" does not cover an ad-supported game.
+  Record what you used and where it came from in `assets/audio/README.md`.
+- Pause music on app backgrounding, resume on return.
+
+### 7. Monitoring
 
 - Sentry, initialised only when a DSN is present.
 - `beforeSend` drops events in debug builds. Debug noise is the developer's own
@@ -211,7 +272,7 @@ someone who paid to remove ads is a wasted request.
   completed. These are the only analytics that matter early, and they cost
   nothing.
 
-### 7. Startup sequence
+### 8. Startup sequence
 
 `main()` does exactly this, in this order:
 
@@ -219,14 +280,16 @@ someone who paid to remove ads is a wasted request.
 2. `await Env.load()` (everything below reads from it, including whether Sentry
    starts at all)
 3. Lock orientation, set edge-to-edge system UI
-4. Open and migrate storage
-5. Build the `ProviderContainer` with storage overridden in
-6. Kick off service warm-up **unawaited**. Nothing here gates the first frame:
+4. `await configureGlobalAudioContext()`, which must happen before any
+   `AudioPlayer` anywhere in the app is constructed
+5. Open and migrate storage
+6. Build the `ProviderContainer` with storage overridden in
+7. Kick off service warm-up **unawaited**. Nothing here gates the first frame:
    a slow network on a cold start must not hold the menu hostage.
-7. `SentryFlutter.init(..., appRunner: () => runApp(...))` when a DSN exists,
+8. `SentryFlutter.init(..., appRunner: () => runApp(...))` when a DSN exists,
    otherwise plain `runApp`.
 
-### 8. Tooling to create
+### 9. Tooling to create
 
 - **`Makefile`** with self-documenting help: `android`, `ios`, `devices`, `get`,
   `test`, `analyze`, `format`, `clean`, `android:aab`, `android:aab:submit`,
@@ -239,10 +302,13 @@ someone who paid to remove ads is a wasted request.
   `--submit` bumps the build number and uploads to the Play internal track via
   fastlane.
 - **`tool/sync_env.dart`** for the iOS xcconfig, as described above.
+- **`tool/generate_sfx.py`** that synthesises the sound effects into
+  `assets/audio/` using the Python standard library only. Commit the script
+  alongside its output so the sounds stay tweakable.
 - **`__secrets/README.md`** listing exactly which credential files go there and
   where each one comes from. Everything else in that folder is gitignored.
 
-### 9. Documentation to write
+### 10. Documentation to write
 
 Keep these current as the project moves. They are the project's memory across
 agent sessions.
@@ -257,8 +323,9 @@ agent sessions.
 | `docs/AGENT_LOG.md` | A dated entry per unit of work: what changed and why. |
 | `docs/DECISIONS.md` | Short ADRs. One paragraph each, why not just what. |
 | `docs/store-listing.md` | Title, short and full description, keywords, screenshot plan. |
+| `assets/audio/README.md` | Where every sound came from and under what license. |
 
-### 10. Testing
+### 11. Testing
 
 - Unit tests for the engine, run on the Dart VM. Rules get a test; the UI does
   not.
@@ -267,7 +334,7 @@ agent sessions.
 - One smoke widget test that pumps the app and reaches the menu.
 - `flutter analyze` clean is part of "done", not a separate chore.
 
-### 11. Writing style for everything you produce
+### 12. Writing style for everything you produce
 
 - No em dashes anywhere: code, comments, docs, commit messages. Use a period, a
   comma, or parentheses.
@@ -276,7 +343,7 @@ agent sessions.
 - User-facing copy is plain and warm. No exclamation-mark spam, no corporate
   cheer.
 
-### 12. Build order
+### 13. Build order
 
 Ship each phase in a runnable state before starting the next. Stop after each
 phase and let me test it.
@@ -290,7 +357,9 @@ phase and let me test it.
 3. **Playable core.** Renderer, controller, one screen. The game is playable and
    loses no state on a rebuild. No monetization yet, no persistence yet.
 4. **Shell.** Menu, settings, pause, game over, storage of progress and high
-   score, audio with a working mute.
+   score. Audio: the global context set in `main()` first, then the service,
+   the generated effects, and three working toggles. Verify: music keeps
+   playing when an effect fires, and the game does not interrupt a podcast.
 5. **Config plumbing.** `.env`, `.env.example`, `Env`, the Gradle parse, the
    iOS xcconfig generator. Verify: the app still runs with `.env` deleted.
 6. **Monetization.** Ad service, purchase service, entitlements, store screen,
@@ -302,7 +371,7 @@ phase and let me test it.
 9. **Release pipeline.** Keystore in `__secrets/`, signing config, `android:aab`,
    fastlane internal track, iOS archive and TestFlight, store listing assets.
 
-### 13. How to work with me
+### 14. How to work with me
 
 - Do not commit while iterating. Make the change and stop so I can review and
   test it.

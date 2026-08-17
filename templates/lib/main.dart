@@ -9,6 +9,7 @@ import 'package:sentry_flutter/sentry_flutter.dart';
 import 'app.dart';
 import 'core/di/providers.dart';
 import 'core/env/env.dart';
+import 'services/audio/audio_service.dart';
 import 'services/storage/storage_service.dart';
 
 Future<void> main() async {
@@ -34,6 +35,11 @@ Future<void> main() async {
       systemNavigationBarColor: Colors.transparent,
     ),
   );
+
+  // Before any AudioPlayer is constructed, anywhere. A player created earlier
+  // is born holding GAIN audio focus, and every sound effect then pauses the
+  // music instead of mixing over it.
+  await configureGlobalAudioContext();
 
   final storage = await StorageService.open();
   await storage.migrate();

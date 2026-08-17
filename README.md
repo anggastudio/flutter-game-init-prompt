@@ -37,6 +37,7 @@ misunderstanding before any code exists.
 | [`reference/env-contract.md`](reference/env-contract.md) | What goes in `.env` versus `__secrets/`, and the three systems that read it. |
 | [`reference/ads-admob.md`](reference/ads-admob.md) | Placement rules, rewarded ad handling, ATT, test ids. |
 | [`reference/iap-revenuecat.md`](reference/iap-revenuecat.md) | Entitlements as behaviour, outcomes not exceptions, dashboard setup. |
+| [`reference/audio.md`](reference/audio.md) | The audio focus trap, voice pooling, mixing with the player's own music, licensing. |
 | [`reference/monitoring-sentry.md`](reference/monitoring-sentry.md) | Config line by line, plus breadcrumbs as your first analytics. |
 | [`reference/release.md`](reference/release.md) | Signing, the AAB lane, store assets, pre-submission checklist. |
 | [`templates/`](templates/) | Working implementations of everything above. |
@@ -55,7 +56,9 @@ templates/
   lib/services/ads/ad_service.dart       Banner, interstitial, rewarded, ATT.
   lib/services/iap/entitlements.dart     Perks as behaviour, keyed by entitlement id.
   lib/services/iap/purchase_service.dart RevenueCat wrapper, SDK types flattened.
+  lib/services/audio/audio_service.dart  Voice pool, music loop, haptics, mute.
   tool/sync_env.dart                     Generates ios/Flutter/Env.xcconfig from .env.
+  tool/generate_sfx.py                   Synthesises the sound effects. Stdlib only.
   android/build.gradle.kts.snippet       .env parsing plus release signing.
   dotfiles/env.example                   Every key, commented with where to find its value.
   dotfiles/gitignore                     Including the .env variants people forget.
@@ -95,6 +98,11 @@ actively wants it. Taking it away punishes the purchase.
 **Ads never throw into gameplay.** Every failure resolves to an outcome enum the
 caller can act on. A rewarded ad that did not load is a `notReady`, not an
 exception on the game-over screen.
+
+**Set the global audio context before any `AudioPlayer` exists.** A player
+constructed earlier is born holding `GAIN` audio focus, and the symptom is
+baffling: music plays fine until the first sound effect, then pauses on every
+effect after it. This one costs an afternoon if you have not hit it before.
 
 **Config lives in one file read by three systems.** Dart reads `.env` at
 runtime, Gradle parses it at Android configuration time for the manifest, and

@@ -1,0 +1,66 @@
+# Rename to `.gitignore` at the repo root.
+
+# Miscellaneous
+*.class
+*.log
+*.pyc
+*.swp
+.DS_Store
+.atom/
+.build/
+.buildlog/
+.history
+.svn/
+.swiftpm/
+migrate_working_dir/
+
+# IntelliJ related
+*.iml
+*.ipr
+*.iws
+.idea/
+
+# Flutter/Dart/Pub related
+**/doc/api/
+**/ios/Flutter/.last_build_id
+.dart_tool/
+.flutter-plugins-dependencies
+.pub-cache/
+.pub/
+/build/
+/coverage/
+
+# Symbolication related
+app.*.symbols
+
+# Obfuscation related
+app.*.map.json
+
+# Android Studio will place build artifacts here
+/android/app/debug
+/android/app/profile
+/android/app/release
+
+# Release artifacts
+/dist/
+
+# Play signing and service account. Never commit these.
+/android/key.properties
+*.jks
+*.keystore
+/android/play-service-account.json
+
+# Build-time and publish-time credentials. The README is the one file here
+# that is worth committing, so it is re-included below.
+/__secrets/
+!__secrets/README.md
+
+# Generated from .env by tool/sync_env.dart.
+/ios/Flutter/Env.xcconfig
+
+# Runtime config (a copy of .env.example with real values). Match every .env
+# variant: `/.env` alone would leave .env.local, .env.production and friends
+# committable.
+.env
+.env.*
+!.env.example

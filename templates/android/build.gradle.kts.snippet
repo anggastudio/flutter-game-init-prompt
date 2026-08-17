@@ -1,0 +1,134 @@
+// Paste into android/app/build.gradle.kts, above the `android { }` block.
+//
+// Two jobs: get the AdMob app ID out of .env and into AndroidManifest.xml, and
+// get release signing credentials out of __secrets/ without either value being
+// written down twice.
+
+/**
+ * Reads a `key=value` file, or returns an empty map when the file is absent,
+ * so a missing file degrades the build rather than failing it.
+ *
+ * Hand-rolled rather than `Properties.load` because that treats `:` as a
+ * second separator and `\` as an escape, which quietly mangles any password
+ * containing either. Splitting on the first `=` and nothing else is what a
+ * `.env` file actually means.
+ */
+fun loadEnvFile(path: String): Map<String, String> {
+    val file = rootProject.file(path)
+    if (!file.exists()) return emptyMap()
+
+    return file.readLines()
+        .map { it.trim() }
+        .filter { it.isNotEmpty() && !it.startsWith("#") && it.contains("=") }
+        .associate { line ->
+            val index = line.indexOf('=')
+            line.substring(0, index).trim() to line.substring(index + 1).trim()
+        }
+}
+
+// Runtime configuration, shared with the Dart side.
+//
+// The AdMob app ID has to be embedded in AndroidManifest.xml, which is
+// assembled long before Dart runs and so cannot read the .env asset. Parsing
+// the same file here at configuration time keeps one source of truth instead
+// of the app ID being written down in two places that drift apart.
+val env = loadEnvFile("../.env")
+val admobAppId = env["ADMOB_APP_ID_ANDROID"]?.takeIf { it.isNotEmpty() }
+    // Google's public test app ID. Serves test ads and is safe as a fallback,
+    // whereas an empty value makes the Ads SDK crash the app on startup.
+    ?: "ca-app-pub-3940256099942544~3347511713"
+
+// Signing credentials. See __secrets/README.md.
+//
+// Two layouts are accepted. `keystore.env` uses ANDROID_* names and is the
+// shared format used across this studio's apps; `keystore.properties` uses the
+// Gradle-conventional names. Supporting both means a shared credentials file
+// can be dropped in untouched, without editing key names that other projects
+// also read.
+val signingConfigFile = listOf("../__secrets/keystore.env", "../__secrets/keystore.properties")
+    .firstOrNull { rootProject.file(it).exists() }
+val signing = signingConfigFile?.let { loadEnvFile(it) } ?: emptyMap()
+
+fun signingValue(vararg names: String): String? =
+    names.firstNotNullOfOrNull { signing[it]?.takeIf { value -> value.isNotEmpty() } }
+
+val releaseStorePassword = signingValue("ANDROID_KEYSTORE_PASSWORD", "storePassword")
+val releaseKeyAlias = signingValue("ANDROID_KEY_ALIAS", "keyAlias")
+// A blank key password conventionally means "same as the store password",
+// which is how `keytool` behaves when you press enter at its prompt.
+val releaseKeyPassword = signingValue("ANDROID_KEY_PASSWORD", "keyPassword") ?: releaseStorePassword
+
+// The path may be absolute, or relative to the project root (which is where a
+// shared credentials file will express it, since that is the checkout root).
+// Falls back to the basename inside __secrets/ so a file that was moved but
+// not re-pathed still resolves.
+val releaseKeystoreFile = signingValue("ANDROID_KEYSTORE_PATH", "storeFile")?.let { raw ->
+    val candidates = listOf(
+        File(raw),
+        rootProject.file("../$raw"),
+        rootProject.file("../__secrets/${File(raw).name}"),
+        rootProject.file(raw)
+    )
+    candidates.firstOrNull { it.exists() }
+}
+
+val hasReleaseSigning =
+    releaseKeystoreFile != null &&
+        releaseStorePassword != null &&
+        releaseKeyAlias != null
+
+android {
+    namespace = "com.example.game"
+    compileSdk = flutter.compileSdkVersion
+    ndkVersion = flutter.ndkVersion
+
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+
+    defaultConfig {
+        applicationId = "com.example.game"
+        minSdk = flutter.minSdkVersion
+        targetSdk = flutter.targetSdkVersion
+        versionCode = flutter.versionCode
+        versionName = flutter.versionName
+
+        // Consumed by the meta-data entry in AndroidManifest.xml:
+        //   <meta-data
+        //       android:name="com.google.android.gms.ads.APPLICATION_ID"
+        //       android:value="${admobAppId}" />
+        manifestPlaceholders["admobAppId"] = admobAppId
+    }
+
+    signingConfigs {
+        if (hasReleaseSigning) {
+            create("release") {
+                storeFile = releaseKeystoreFile
+                storePassword = releaseStorePassword
+                keyAlias = releaseKeyAlias
+                keyPassword = releaseKeyPassword
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            // Falls back to debug signing when no keystore is present, so a
+            // contributor without the credentials can still build a release
+            // APK locally instead of hitting a wall.
+            signingConfig = if (hasReleaseSigning) {
+                signingConfigs.getByName("release")
+            } else {
+                signingConfigs.getByName("debug")
+            }
+
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
+        }
+    }
+}

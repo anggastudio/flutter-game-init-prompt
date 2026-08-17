@@ -8,6 +8,32 @@ Audio is decoration. A device with a busy audio session, a revoked codec, or a
 missing asset must still be playable. Every failure path in the service is
 logged and swallowed, never thrown.
 
+## Summary
+
+**Two formats, one asset set, both platforms.** The split is by use, not by
+platform.
+
+| Use | Format | Android | iOS |
+| --- | --- | --- | --- |
+| Sound effects | **16-bit mono WAV** (linear PCM), 22.05kHz | Yes | Yes |
+| Music loop | **AAC in `.m4a`** | Yes | Yes |
+
+- **Effects are WAV because of overlap.** On iOS the hardware-decoded codecs
+  (AAC, MP3, ALAC) share a single decoder and play strictly one at a time.
+  Linear PCM is software-decoded and plays simultaneously. A voice pool fed
+  compressed effects will not overlap there; fed WAV it will. Short files are
+  small anyway: a 200ms mono effect is about 9KB.
+- **Music is AAC because of size.** It plays alone, so it never needs to
+  overlap, and a 2 minute loop is around 20MB as WAV against 2MB as AAC.
+- **Never ship `.ogg`.** Android decodes Vorbis natively, iOS never has, and it
+  fails at runtime on device rather than at build time.
+- **Avoid MP3 for short effects.** Encoder padding makes a 60ms tap arrive late
+  and stops a loop being gapless.
+
+The other three things that matter, each expanded below: set the global audio
+context before any `AudioPlayer` exists, never interrupt the player's own
+audio, and give sound, music and haptics three separate persisted toggles.
+
 ## The audio focus trap
 
 This is the single bug that costs the most time, so it goes first.
@@ -154,21 +180,18 @@ different, see below.
 nothing itself, so what plays is exactly what Android and iOS each support
 natively. Those two lists are not the same, and the gaps matter.
 
-| Use | Format | Android | iOS |
+| Format | Android | iOS | Verdict |
 | --- | --- | --- | --- |
-| Short effects | **16-bit mono WAV (linear PCM), 22.05kHz** | Yes | Yes |
-| Music loop | **AAC in `.m4a`** | Yes | Yes |
-| Anything | `.ogg` (Vorbis) | Yes | **No** |
-| Anything | `.mp3` | Yes | Yes, but see below |
-
-The split is by **use, not by platform**. Ship the same `tap.wav` and the same
-`music.m4a` to Android and iOS both. There is no reason to maintain two sets of
-platform-specific assets, and the two formats above are the pair that every
-target decodes natively.
+| WAV (linear PCM) | Yes | Yes | **Use for effects.** |
+| AAC in `.m4a` | Yes | Yes | **Use for music.** |
+| `.ogg` (Vorbis) | Yes | **No** | Never, in a cross-platform game. |
+| `.mp3` | Yes | Yes | Works, but padded. See below. |
+| ALAC, CAF, AIFF | Partial | Yes | Apple-flavoured. No reason to prefer them. |
+| FLAC | Yes | No | Lossless, large, pointless for a game. |
 
 **WAV for effects is not just a latency preference on iOS, it is a correctness
 requirement.** Apple's hardware-assisted codecs (AAC, MP3, ALAC) share a single
-hardware decoder, so **only one such sound can play at a time**. Linear PCM and
+hardware decoder, so only one such sound can play at a time. Linear PCM and
 IMA4 are software-decoded and can play simultaneously without CPU trouble. A
 voice pool of four players fed compressed effects will not overlap on iOS; the
 same pool fed WAV will.
@@ -176,7 +199,15 @@ same pool fed WAV will.
 **Never ship `.ogg` in a cross-platform game.** Android supports Vorbis natively
 and it is tempting because it is small, but iOS has never supported it. The
 failure is at runtime on device, not at build time, which is the worst place to
-find it.
+find it. If an asset pack arrives as `.ogg`, convert it:
+
+```bash
+# Effects: to 16-bit mono PCM at 22.05kHz.
+ffmpeg -i in.ogg -acodec pcm_s16le -ar 22050 -ac 1 out.wav
+
+# Music: to AAC at a bitrate nobody will hear the difference above.
+ffmpeg -i in.ogg -c:a aac -b:a 128k out.m4a
+```
 
 **Avoid MP3 for short effects** even though both platforms decode it. The format
 carries encoder padding at the start and end of every file, so a 60ms tap sound
@@ -216,6 +247,9 @@ time to start looking.
 
 ## Checklist
 
+- [ ] Effects are WAV, music is AAC `.m4a`, and no `.ogg` is bundled anywhere.
+- [ ] Two effects fired on the same frame actually overlap **on an iOS device**,
+      which is where compressed effects would silently serialise.
 - [ ] Global audio context set in `main()` before any player is constructed.
 - [ ] Music keeps playing when a sound effect fires.
 - [ ] The player's own background audio is not interrupted.

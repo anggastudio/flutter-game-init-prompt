@@ -161,6 +161,11 @@ natively. Those two lists are not the same, and the gaps matter.
 | Anything | `.ogg` (Vorbis) | Yes | **No** |
 | Anything | `.mp3` | Yes | Yes, but see below |
 
+The split is by **use, not by platform**. Ship the same `tap.wav` and the same
+`music.m4a` to Android and iOS both. There is no reason to maintain two sets of
+platform-specific assets, and the two formats above are the pair that every
+target decodes natively.
+
 **WAV for effects is not just a latency preference on iOS, it is a correctness
 requirement.** Apple's hardware-assisted codecs (AAC, MP3, ALAC) share a single
 hardware decoder, so **only one such sound can play at a time**. Linear PCM and
